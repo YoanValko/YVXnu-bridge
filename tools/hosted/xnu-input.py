@@ -39,6 +39,9 @@ class Input:
     def __init__(self, path, width, height):
         self.out, self.w, self.h = open(path, 'ab', buffering=0), width, height
 
+    def close(self):
+        self.out.close()
+
     def ev(self, t, c, v):
         self.out.write(struct.pack('<HHi', t, c, v))
 
@@ -47,6 +50,8 @@ class Input:
         time.sleep(0.02)
 
     def move(self, x, y):
+        x = min(max(float(x), 0.0), self.w - 1)
+        y = min(max(float(y), 0.0), self.h - 1)
         self.ev(EV_ABS, 0, int(x * 32767 / (self.w - 1)))
         self.ev(EV_ABS, 1, int(y * 32767 / (self.h - 1)))
         self.syn()
@@ -78,43 +83,67 @@ class Input:
 def main(argv):
     path, screen = '/var/tmp/xnu-input', '1280x800'
     while argv and argv[0].startswith('--'):
+        if len(argv) < 2:
+            sys.exit(f'{argv[0]} requires a value')
         opt, value = argv[0], argv[1]
         argv = argv[2:]
         if opt == '--file':
             path = value
         elif opt == '--screen':
             screen = value
-    w, h = (int(v) for v in screen.split('x'))
-    d = Input(path, w, h)
-    i = 0
-    while i < len(argv):
-        cmd = argv[i]; i += 1
-        if cmd == 'move':
-            d.move(float(argv[i]), float(argv[i + 1])); i += 2
-        elif cmd in ('click', 'rclick'):
-            if i + 1 < len(argv) and argv[i].replace('.', '').isdigit():
-                d.move(float(argv[i]), float(argv[i + 1])); i += 2
-            b = 'left' if cmd == 'click' else 'right'
-            d.button(b, True); d.button(b, False)
-        elif cmd == 'drag':
-            x1, y1, x2, y2 = (float(v) for v in argv[i:i + 4]); i += 4
-            d.move(x1, y1); d.button('left', True)
-            for s in range(1, 11):
-                d.move(x1 + (x2 - x1) * s / 10, y1 + (y2 - y1) * s / 10)
-            d.button('left', False)
-        elif cmd == 'scroll':
-            d.ev(EV_REL, 8, int(argv[i])); d.syn(); i += 1
-        elif cmd == 'type':
-            d.type(argv[i]); i += 1
-        elif cmd == 'key':
-            names = []
-            while i < len(argv) and argv[i] in KEYS:
-                names.append(KEYS[argv[i]]); i += 1
-            d.keys(names)
-        elif cmd == 'sleep':
-            time.sleep(float(argv[i])); i += 1
         else:
-            sys.exit(f'unknown command {cmd}')
+            sys.exit(f'unknown option {opt}')
+    try:
+        w, h = (int(v) for v in screen.split('x'))
+    except (ValueError, TypeError):
+        sys.exit(f'invalid screen size {screen!r}; use WIDTHxHEIGHT')
+    if w < 2 or h < 2:
+        sys.exit('screen width and height must both be at least 2')
+    d = Input(path, w, h)
+    def need(i, count, cmd):
+        if i + count > len(argv):
+            sys.exit(f'{cmd} needs {count} argument(s)')
+
+    try:
+        i = 0
+        while i < len(argv):
+            cmd = argv[i]; i += 1
+            if cmd == 'move':
+                need(i, 2, cmd); d.move(float(argv[i]), float(argv[i + 1])); i += 2
+            elif cmd in ('click', 'rclick'):
+                if i + 1 < len(argv):
+                    try:
+                        x, y = float(argv[i]), float(argv[i + 1])
+                    except ValueError:
+                        x = y = None
+                    if x is not None and y is not None:
+                        d.move(x, y); i += 2
+                b = 'left' if cmd == 'click' else 'right'
+                d.button(b, True); d.button(b, False)
+            elif cmd == 'drag':
+                need(i, 4, cmd)
+                x1, y1, x2, y2 = (float(v) for v in argv[i:i + 4]); i += 4
+                d.move(x1, y1); d.button('left', True)
+                for s in range(1, 11):
+                    d.move(x1 + (x2 - x1) * s / 10, y1 + (y2 - y1) * s / 10)
+                d.button('left', False)
+            elif cmd == 'scroll':
+                need(i, 1, cmd); d.ev(EV_REL, 8, int(argv[i])); d.syn(); i += 1
+            elif cmd == 'type':
+                need(i, 1, cmd); d.type(argv[i]); i += 1
+            elif cmd == 'key':
+                names = []
+                while i < len(argv) and argv[i] in KEYS:
+                    names.append(KEYS[argv[i]]); i += 1
+                if not names:
+                    sys.exit('key needs at least one known key name')
+                d.keys(names)
+            elif cmd == 'sleep':
+                need(i, 1, cmd); time.sleep(float(argv[i])); i += 1
+            else:
+                sys.exit(f'unknown command {cmd}')
+    finally:
+        d.close()
 
 
 if __name__ == '__main__':

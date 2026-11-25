@@ -6,6 +6,8 @@ typedef unsigned int u32_t;
 typedef unsigned long long u64_t;
 
 #define MH_MAGIC_64 0xfeedfacf
+#define CPU_TYPE_X86_64 0x01000007
+#define CPU_TYPE_ARM64 0x0100000c
 #define LC_SEGMENT_64 0x19
 #define LC_SYMTAB 0x2
 #define LC_UNIXTHREAD 0x5

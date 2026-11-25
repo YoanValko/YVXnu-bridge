@@ -54,7 +54,16 @@ static void *cpu_thread[XNU_MAX_CPUS];
 static volatile int cpu_running[XNU_MAX_CPUS];
 static void stop_commit(void);
 static u64_t a_cpu_entry;			/* XNU's linux64_cpu_entry */
-static inline unsigned this_slot(void) { unsigned long m; __asm__ volatile("mrs %0, mpidr_el1" : "=r"(m)); return LINUX64_CPU_SLOT(m); }
+static inline unsigned this_slot(void)
+{
+#if defined(__x86_64__)
+	return 0;
+#else
+	unsigned long m;
+	__asm__ volatile("mrs %0, mpidr_el1" : "=r"(m));
+	return LINUX64_CPU_SLOT(m);
+#endif
+}
 /* Writing 1 ends the run at XNU's next call into the host; insmod returns and the module can be removed */
 static int stop_run;
 module_param(stop_run, int, 0644);
@@ -455,6 +464,9 @@ static inline void acct_add(unsigned long call, u64_t ticks)
 static volatile unsigned stop_state;
 static inline int stop_cas(unsigned old, unsigned new)
 {
+#if defined(__x86_64__)
+	return __sync_bool_compare_and_swap(&stop_state, old, new);
+#else
 	unsigned cur, fail;
 	__asm__ volatile(
 		"1:	ldaxr	%w[cur], [%[p]]\n"
@@ -467,6 +479,7 @@ static inline int stop_cas(unsigned old, unsigned new)
 		: [p] "r"(&stop_state), [old] "r"(old), [new] "r"(new)
 		: "cc", "memory");
 	return cur == old;
+#endif
 }
 static void stop_commit(void)
 {
@@ -510,7 +523,11 @@ long xnu_hook(unsigned long call, unsigned long a1, unsigned long a2)
 		/* debugging: an XNU stack Linux's overflow check would reject (bit 14 of sp set) */
 		static int told;
 		unsigned long sp;
+		#if defined(__x86_64__)
+		__asm__ volatile("mov %%rsp, %0" : "=r"(sp));
+		#else
 		__asm__ volatile("mov %0, sp" : "=r"(sp));
+		#endif
 		if ((sp & 0x4000) && told < 3) {
 			told++;
 			logkv("xnu: upcall on an XNU stack with sp bit 14 set, sp", sp);
@@ -1204,9 +1221,11 @@ static int enter_arm_init(struct boot_args_v2 *ba)
 		 * XNU's user half starts as Linux's TTBR0. Its TCR stays Linux's (T0SZ 16, 4-level): a 4K XNU user pmap's
 		 * hardware root (hw_ttep) is an L0 table whose first entry points at its L1 (ttep), as the walk showed.
 		 */
-		unsigned long long tcr, ttbr0;
+		unsigned long long tcr = 0, ttbr0 = 0;
+		#if !defined(__x86_64__)
 		__asm__ volatile("mrs %0, tcr_el1" : "=r"(tcr));
 		__asm__ volatile("mrs %0, ttbr0_el1" : "=r"(ttbr0));
+		#endif
 		/*
 		 * TCR.A1 off in XNU's world: Linux takes the ASID from TTBR1 (A1 = 1), XNU's pmaps put theirs in TTBR0. With
 		 * Linux's A1 every XNU user pmap ran under Linux's one ASID, so XNU's per-ASID TLB flushes missed and a freed

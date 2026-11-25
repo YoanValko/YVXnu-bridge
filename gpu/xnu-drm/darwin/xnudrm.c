@@ -434,7 +434,15 @@ void *xnudrm_mmap(void *addr, size_t len, int prot, int flags, int fd, off_t off
 	kern_return_t kr = IOConnectCallScalarMethod(c, 1, in, 2, out, &nout);
 	if (kr == KERN_SUCCESS) {
 		struct xmap *nm = realloc(maps, (nmaps + 1) * sizeof(*maps));
-		if (nm) { maps = nm; maps[nmaps++] = (struct xmap){ (void *)(uintptr_t)out[0], len, out[1], c }; }
+		if (nm) {
+			maps = nm;
+			maps[nmaps++] = (struct xmap){ (void *)(uintptr_t)out[0], len, out[1], c };
+		} else {
+			/* The kext already installed the mapping; release it or leak a task mapping. */
+			uint64_t id = out[1];
+			IOConnectCallScalarMethod(c, 2, &id, 1, NULL, NULL);
+			kr = kIOReturnNoMemory;
+		}
 	}
 	pthread_mutex_unlock(&lk);
 	if (kr != KERN_SUCCESS) { if (debug()) fprintf(stderr, "xnudrm: map handle %llu: %#x\n", (unsigned long long)in[0], kr); errno = ENOMEM; return MAP_FAILED; }

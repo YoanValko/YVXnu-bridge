@@ -102,6 +102,61 @@ the system volume, AMFI is patched and SIP relaxed, and memory access is slower 
 
 ## Building and running
 
+### Ubuntu AMD64 host build
+
+On an x86-64 Ubuntu kernel, build the AMD64 bring-up modules with:
+
+```sh
+make
+```
+
+This produces `fki-ko/fki.ko` and the parse-only `xnu-ko/xnu.ko` using the
+running kernel's headers. The xnu module validates x86-64 Mach-O images but
+does not boot macOS; a native AMD64 Darwin machine layer is still required for
+that (see
+[`docs/amd64-port.md`](docs/amd64-port.md)).
+
+The non-loading checks are:
+
+```sh
+make x86-macho-check x86-world-test x86-stack-test x86-abi-check x86-world-check
+```
+
+They exercise Mach-O rejection/entry parsing, the alternate-stack ABI, the
+x86-64 register-preserving world switch, and the shared Linux↔XNU ABI syntax in
+userspace; they do not insert a kernel module.
+
+The hosted display helpers can be checked without loading anything too:
+
+```sh
+make hosted-desktop-check
+```
+
+The Linux DRM/Venus bridge can be compiled independently with:
+
+```sh
+make gpu-check
+```
+
+It only builds the daemon; it does not open `/dev/xnu-hostcall`, load a
+kernel module, or touch the host GPU.
+
+If `make gpu-check` reports that VirGL is missing and sudo is unavailable,
+install the Ubuntu packages locally with `scripts/install-virgl.sh`. This
+places only development files under `.deps/virgl`; it does not modify the
+system package database.
+
+For the final Ubuntu AMD64 preflight, run `make check`. It builds both
+modules, compiles the GPU daemon, validates the desktop tools and runs every
+x86 non-loading test; it never calls `insmod` or `rmmod`.
+
+On the ARM64 hosted system, convert one framebuffer dump with
+`tools/hosted/fb2png.py /var/tmp/xnu-fb.raw 1280 800 /tmp/xnu.png`, or keep a
+PNG updated while the system runs with `--watch`. Send pointer and keyboard
+events with `tools/hosted/xnu-input.py`; coordinates are clamped to the chosen
+screen size and malformed commands are rejected instead of producing partial
+input.
+
 1. `scripts/vm-xnu-build.sh` (on the arm64 Linux host, once): sets up the macOS-DroidVM Linux toolchain and builds XNU
    (`xnu-12377.121.6`) natively on arm64.
 2. `scripts/vm-xnu-rebuild.sh`: applies `xnu-patches/`, builds the kernel and `kexts/`, and links the kernel collection

@@ -13,18 +13,41 @@ int macho_load(struct xnu_image *img, const void *file, unsigned long size, unsi
 {
 	const struct mh64 *mh = file;
 	int err;
-	(void)err;
 
-	img->file = file; img->file_size = size;
 	if (size < sizeof(*mh) || mh->magic != MH_MAGIC_64)
 		return -ENOEXEC;
+	if (mh->sizeofcmds > size - sizeof(*mh))
+		return -ENOEXEC;
+	*img = (struct xnu_image){ .file = file, .file_size = size };
+#if defined(__x86_64__)
+	if (mh->cputype != CPU_TYPE_X86_64)
+		return -ENOEXEC;
+#else
+	if (mh->cputype != CPU_TYPE_ARM64)
+		return -ENOEXEC;
+#endif
 	img->vmlow = ~0ULL; img->vmhigh = 0;
-	FOR_EACH_LC(img, l) {
+	const unsigned char *p = (const unsigned char *)(mh + 1);
+	const unsigned char *end = p + mh->sizeofcmds;
+	for (u32_t n = 0; n < mh->ncmds; n++) {
+		if (p > end || (unsigned long)(end - p) < sizeof(struct lc))
+			return -ENOEXEC;
+		const struct lc *l = (const void *)p;
+		if (l->cmdsize < sizeof(*l) || l->cmdsize > (unsigned long)(end - p))
+			return -ENOEXEC;
 		if (l->cmd == LC_SEGMENT_64) {
 			const struct seg64 *s = (const void *)l;
-			if (!s->vmsize || !x_strncmp(s->segname, "__PAGEZERO", 16))
+			if (l->cmdsize < sizeof(*s) || s->nsects > (l->cmdsize - sizeof(*s)) / sizeof(struct sect64))
+				return -ENOEXEC;
+			if (!s->vmsize || !x_strncmp(s->segname, "__PAGEZERO", 16)) {
+				p += l->cmdsize;
 				continue;
+			}
 			if (s->vmaddr < img->vmlow) img->vmlow = s->vmaddr;
+			if (s->vmaddr + s->vmsize < s->vmaddr)
+				return -ENOEXEC;
+			if (s->filesize > s->vmsize || s->fileoff > size || s->filesize > size - s->fileoff)
+				return -ENOEXEC;
 			if (s->vmaddr + s->vmsize > img->vmhigh) img->vmhigh = s->vmaddr + s->vmsize;
 			const struct sect64 *sc = (const void *)(s + 1);
 			for (u32_t i = 0; i < s->nsects; i++)
@@ -33,12 +56,29 @@ int macho_load(struct xnu_image *img, const void *file, unsigned long size, unsi
 					img->thread_starts_size = sc[i].size;
 				}
 		} else if (l->cmd == LC_SYMTAB) {
+			const struct symtab_lc *st = (const void *)l;
+			if (l->cmdsize < sizeof(*st) || st->symoff > size || st->nsyms > (size - st->symoff) / sizeof(struct nlist64) ||
+				st->stroff > size || st->strsize > size - st->stroff)
+				return -ENOEXEC;
 			img->symtab = (const void *)l;
 		} else if (l->cmd == LC_UNIXTHREAD) {
-			/* flavor, count, then arm_thread_state64: x[29], fp, lr, sp, pc */
+			/* flavor, count, then the architecture's thread-state words. */
+			if (l->cmdsize < sizeof(*l) + 8)
+				return -ENOEXEC;
 			const u32_t *t = (const void *)(l + 1);
+#if defined(__x86_64__)
+			/* x86_thread_state64: rax..r15, rip, rflags, cs, fs, gs. */
+			if (l->cmdsize < sizeof(*l) + 8 + 17 * sizeof(u64_t))
+				return -ENOEXEC;
+			img->entry = *(const u64_t *)(t + 2 + 2 * 16);
+#else
+			/* arm_thread_state64: x[29], fp, lr, sp, pc. */
+			if (l->cmdsize < sizeof(*l) + 8 + 33 * sizeof(u64_t))
+				return -ENOEXEC;
 			img->entry = *(const u64_t *)(t + 2 + 2 * 32);
+		#endif
 		}
+		p += l->cmdsize;
 	}
 	if (img->vmhigh <= img->vmlow)
 		return -ENOEXEC;
@@ -49,16 +89,35 @@ int macho_load(struct xnu_image *img, const void *file, unsigned long size, unsi
 		 * arm_init applies itself (kernel_collection_slide). The kernel's symbols are in its own entry's LC_SYMTAB.
 		 */
 		img->symtab = 0;
-		FOR_EACH_LC(img, l) {
-			if (l->cmd != LC_FILESET_ENTRY) continue;
+		p = (const unsigned char *)(mh + 1);
+		for (u32_t n = 0; n < mh->ncmds; n++) {
+			const struct lc *l = (const void *)p;
+			if (l->cmd != LC_FILESET_ENTRY) {
+				p += l->cmdsize;
+				continue;
+			}
+			if (l->cmdsize < sizeof(struct fileset_entry_lc))
+				return -ENOEXEC;
 			const struct fileset_entry_lc *fe = (const void *)l;
-			if (fe->entry_id >= fe->cmdsize || x_strcmp((const char *)fe + fe->entry_id, "com.apple.kernel")) continue;
-			if (fe->fileoff + sizeof(struct mh64) > size) return -ENOEXEC;
+			if (fe->entry_id >= fe->cmdsize || fe->entry_id > (unsigned long)l->cmdsize - 1 ||
+				x_strcmp((const char *)fe + fe->entry_id, "com.apple.kernel")) {
+				p += l->cmdsize;
+				continue;
+			}
+			if (fe->fileoff > size - sizeof(struct mh64)) return -ENOEXEC;
 			img->kernel_mh = fe->vmaddr;
 			const struct mh64 *kh = (const void *)((const char *)file + fe->fileoff);
+			if (kh->magic != MH_MAGIC_64 || kh->sizeofcmds > size - fe->fileoff - sizeof(*kh))
+				return -ENOEXEC;
 			const struct lc *kl = (const void *)(kh + 1);
-			for (u32_t i = 0; i < kh->ncmds; i++, kl = (const void *)((const char *)kl + kl->cmdsize))
+			const unsigned char *ke = (const unsigned char *)kl + kh->sizeofcmds;
+			for (u32_t i = 0; i < kh->ncmds; i++, kl = (const void *)((const char *)kl + kl->cmdsize)) {
+				if ((const unsigned char *)kl + sizeof(*kl) > ke || kl->cmdsize < sizeof(*kl) ||
+					(const unsigned char *)kl + kl->cmdsize > ke)
+					return -ENOEXEC;
 				if (kl->cmd == LC_SYMTAB) img->symtab = (const void *)kl;
+			}
+			p += l->cmdsize;
 		}
 		if (!img->kernel_mh || !img->symtab)
 			return -ENOEXEC;
@@ -69,7 +128,13 @@ int macho_load(struct xnu_image *img, const void *file, unsigned long size, unsi
 	if (err)
 		return err;
 	img->slide = (u64_t)img->region.va - img->vmlow;
-	return macho_copy(img, img->region.va);
+	err = macho_copy(img, img->region.va);
+	if (err) {
+		fki_region_free(&img->region);
+		img->slide = 0;
+		return err;
+	}
+	return 0;
 }
 
 /* Copy the segments to dst, which is where vmlow will live. */
@@ -79,7 +144,10 @@ int macho_copy(struct xnu_image *img, void *dst)
 		if (l->cmd != LC_SEGMENT_64) continue;
 		const struct seg64 *s = (const void *)l;
 		if (!s->vmsize || !s->filesize || !x_strncmp(s->segname, "__PAGEZERO", 16)) continue;
-		if (s->fileoff + s->filesize > img->file_size) return -ENOEXEC;
+		if (s->fileoff > img->file_size || s->filesize > img->file_size - s->fileoff ||
+			s->vmaddr < img->vmlow || s->vmaddr - img->vmlow > img->vmhigh - img->vmlow ||
+			s->filesize > img->vmhigh - img->vmlow - (s->vmaddr - img->vmlow))
+			return -ENOEXEC;
 		x_memcpy((char *)dst + (s->vmaddr - img->vmlow), img->file + s->fileoff, s->filesize);
 	}
 	return 0;
@@ -87,6 +155,11 @@ int macho_copy(struct xnu_image *img, void *dst)
 
 static inline u64_t sign(u64_t v, unsigned key, u64_t disc)
 {
+#if defined(__x86_64__)
+	(void)key;
+	(void)disc;
+	return v;
+#else
 	switch (key) {
 	case 0: asm volatile(".arch_extension pauth\n\tpacia %0, %1" : "+r"(v) : "r"(disc)); break;
 	case 1: asm volatile(".arch_extension pauth\n\tpacib %0, %1" : "+r"(v) : "r"(disc)); break;
@@ -94,6 +167,7 @@ static inline u64_t sign(u64_t v, unsigned key, u64_t disc)
 	default: asm volatile(".arch_extension pauth\n\tpacdb %0, %1" : "+r"(v) : "r"(disc)); break;
 	}
 	return v;
+#endif
 }
 
 /* Runs inside fki_enter() with the XNU kernel keys loaded. */

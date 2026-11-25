@@ -33,7 +33,12 @@ static uint8_t *gIn, *gOut;	// XNUDRM_MAX_MSG + header each
 static long hostcall(unsigned long len)
 {
 	long r = linux64_hostcall(gIn, len, gOut, sizeof(xnudrm_hdr) + XNUDRM_MAX_MSG);
-	if (r >= 0 && ((size_t)r < sizeof(xnudrm_hdr) || ((xnudrm_hdr *)gOut)->magic != XNUDRM_MAGIC)) r = -EPROTO;
+	if (r >= 0) {
+		xnudrm_hdr *h = (xnudrm_hdr *)gOut;
+		if ((size_t)r < sizeof(*h) || h->magic != XNUDRM_MAGIC ||
+		    h->payload_len > (size_t)r - sizeof(*h) || h->payload_len > XNUDRM_MAX_MSG)
+			r = -EPROTO;
+	}
 	return r;
 }
 
@@ -151,11 +156,25 @@ IOReturn AGXDeviceUserClient::doMap(IOExternalMethodArguments *a)
 		return kIOReturnNoMemory;
 	}
 	uint64_t id = r->arg0;
+	if (!id || !r->payload_len || r->payload_len % sizeof(xnudrm_range)) {
+		IOLockUnlock(gCallLock);
+		if (id) { xnudrm_hdr ur; simple(XNUDRM_UNMAP, id, 0, &ur); }
+		return kIOReturnBadArgument;
+	}
 	uint32_t nr = r->payload_len / sizeof(xnudrm_range);
 	IOAddressRange *ranges = (IOAddressRange *)IOMallocData(nr * sizeof(IOAddressRange));
 	if (!ranges) { IOLockUnlock(gCallLock); return kIOReturnNoMemory; }
 	const xnudrm_range *rg = (const xnudrm_range *)(gOut + sizeof(xnudrm_hdr));
-	for (uint32_t i = 0; i < nr; i++) ranges[i] = (IOAddressRange){ rg[i].pa, rg[i].len };
+	for (uint32_t i = 0; i < nr; i++) {
+		if (!rg[i].len || rg[i].pa > ~static_cast<uint64_t>(0) - rg[i].len) {
+			IOFreeData(ranges, nr * sizeof(IOAddressRange));
+			IOLockUnlock(gCallLock);
+			xnudrm_hdr ur;
+			simple(XNUDRM_UNMAP, id, 0, &ur);
+			return kIOReturnBadArgument;
+		}
+		ranges[i] = (IOAddressRange){ rg[i].pa, rg[i].len };
+	}
 	IOLockUnlock(gCallLock);
 
 	// Linux's pages, outside of XNU's own memory: normal cacheable memory, as Linux maps them (the host keeps blob memory
@@ -177,7 +196,13 @@ IOReturn AGXDeviceUserClient::doMap(IOExternalMethodArguments *a)
 	if (i == fNSlots) {
 		unsigned nn = fNSlots ? fNSlots * 2 : 64;
 		Slot *s = (Slot *)IOMallocZeroData(nn * sizeof(Slot));
-		if (!s) { map->release(); md->release(); return kIOReturnNoMemory; }
+		if (!s) {
+			map->release(); md->release();
+			IOLockUnlock(gCallLock);
+			xnudrm_hdr ur;
+			simple(XNUDRM_UNMAP, id, 0, &ur);
+			return kIOReturnNoMemory;
+		}
 		if (fSlots) { memcpy(s, fSlots, fNSlots * sizeof(Slot)); IOFreeData(fSlots, fNSlots * sizeof(Slot)); }
 		fSlots = s; fNSlots = nn;
 	}

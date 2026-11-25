@@ -18,7 +18,15 @@
 #ifndef _LINUX64_LINUX64_H_
 #define _LINUX64_LINUX64_H_
 
+#if defined(__has_include)
+#if __has_include(<linux64/linux64_abi.h>)
 #include <linux64/linux64_abi.h>
+#else
+#include "linux64_abi.h"
+#endif
+#else
+#include <linux64/linux64_abi.h>
+#endif
 
 /* Bring-up diagnostics (thread dumps from the idle loop, per-exception traces): off unless built with -DLINUX64_DEBUG=1 */
 #ifndef LINUX64_DEBUG
@@ -39,10 +47,16 @@ extern unsigned long linux64_slide;
 static inline unsigned
 linux64_cpu_slot(void)
 {
+#if defined(__x86_64__)
+	/* The first x86 bring-up is single-CPU. The host ABI reserves the same
+	 * slot array; a complete port will replace this with a GS/per-CPU lookup. */
+	return 0;
+#else
 	unsigned long mpidr;
 
 	__asm__ volatile ("mrs %0, MPIDR_EL1" : "=r"(mpidr));
 	return LINUX64_CPU_SLOT(mpidr);
+#endif
 }
 
 /* Each CPU's interrupt-enable state: hardware interrupts stay masked while XNU runs; this flag is the virtual one */
@@ -57,6 +71,19 @@ extern unsigned long linux64_dbg[LINUX64_NCOUNTERS];
 static inline unsigned long
 linux64_call2(enum linux64_call call, unsigned long a1, unsigned long a2)
 {
+#if defined(__x86_64__)
+	register unsigned long rdi __asm__("rdi") = (unsigned long)call;
+	register unsigned long rsi __asm__("rsi") = a1;
+	register unsigned long rdx __asm__("rdx") = a2;
+	linux64_dbg[LINUX64_CTR_LAST_CALL] = (unsigned long)call;
+	if (linux64_hook) {
+		__asm__ volatile ("call *%3"
+		    : "+D"(rdi), "+S"(rsi), "+d"(rdx)
+		    : "r"(linux64_hook)
+		    : "rax", "rcx", "r8", "r9", "r10", "r11", "cc", "memory");
+	}
+	return rdi;
+#else
 	register unsigned long x0 __asm__("x0") = (unsigned long)call;
 	register unsigned long x1 __asm__("x1") = a1;
 	register unsigned long x2 __asm__("x2") = a2;
@@ -70,6 +97,7 @@ linux64_call2(enum linux64_call call, unsigned long a1, unsigned long a2)
 		    "x30", "cc", "memory");
 	}
 	return x0;
+#endif
 }
 
 static inline unsigned long

@@ -13,7 +13,8 @@
 # Configuration: /etc/xnulinux.conf, then $MAC_CONF (/var/tmp/mac.conf, written by mk-macvm-disk.sh: ROOT_UUID, BOOT_UUID), then the
 # environment:
 #   DISK (/var/tmp/mac.img)  RAM_MB (7900)  BOOTARGS  CONSOLE_IN (/var/tmp/console-in)  INPUT_IN (/var/tmp/xnu-input)
-#   FB_DUMP (/var/tmp/xnu-fb.raw)  KEYSTORE (/var/tmp/xnu-keystore.bin)  TRUSTCACHE (xnu/trustcache-mac.bin; empty: none)
+#   FB_DUMP (/var/tmp/xnu-fb.raw)  FB_WIDTH (1280)  FB_HEIGHT (800)  FB_DUMP_MS (1000)
+#   KEYSTORE (/var/tmp/xnu-keystore.bin)  TRUSTCACHE (xnu/trustcache-mac.bin; empty: none)
 #   IMAGE (xnu/kc.bin: the kernel collection under /lib/firmware)  GPU (auto|off)  CPUS (1: the hosted system's CPUs)  XNU_ARGS (more xnu.ko parameters)
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -38,6 +39,7 @@ MAC_CONF=${MAC_CONF:-/var/tmp/mac.conf}	# the disk's UUIDs: mk-macvm-disk.sh's, 
 [ -f "$MAC_CONF" ] && . "$MAC_CONF"
 DISK=${DISK:-/var/tmp/mac.img}; RAM_MB=${RAM_MB:-7900}; GPU=${GPU:-auto}; CPUS=${CPUS:-1}
 CONSOLE_IN=${CONSOLE_IN:-/var/tmp/console-in}; INPUT_IN=${INPUT_IN:-/var/tmp/xnu-input}; FB_DUMP=${FB_DUMP:-/var/tmp/xnu-fb.raw}
+FB_WIDTH=${FB_WIDTH:-1280}; FB_HEIGHT=${FB_HEIGHT:-800}; FB_DUMP_MS=${FB_DUMP_MS:-1000}
 KEYSTORE=${KEYSTORE:-/var/tmp/xnu-keystore.bin}; TRUSTCACHE=${TRUSTCACHE-xnu/trustcache-mac.bin}; IMAGE=${IMAGE:-xnu/kc.bin}
 BOOTARGS=${BOOTARGS:-amfi_get_out_of_my_way=1 lp-sip0=2050 bt-transport-override=10}
 : "${ROOT_UUID:?no ROOT_UUID (/var/tmp/mac.conf from mk-macvm-disk.sh)}" "${BOOT_UUID:?no BOOT_UUID}"
@@ -143,7 +145,8 @@ for try in 1 2 3 4 5 6 7 8 9; do
   sudo dmesg -C
   sudo setsid nohup insmod xnu-ko/xnu.ko mode=3 cpus="$CPUS" ram_mb="$RAM_MB" image="$IMAGE" \
     ${TRUSTCACHE:+trustcache="$TRUSTCACHE"} disk="$DISK" root_uuid="$ROOT_UUID" boot_uuid="$BOOT_UUID" preboot_uuid="$BOOT_UUID" \
-    console_in="$CONSOLE_IN" input_in="$INPUT_IN" fb_dump="$FB_DUMP" keystore="$KEYSTORE" bootargs="\"$BOOTARGS\"" "${NAMES[@]}" ${VM16K:-} ${XNU_ARGS:-} \
+    console_in="$CONSOLE_IN" input_in="$INPUT_IN" fb_dump="$FB_DUMP" fb_width="$FB_WIDTH" fb_height="$FB_HEIGHT" fb_dump_ms="$FB_DUMP_MS" \
+    keystore="$KEYSTORE" bootargs="\"$BOOTARGS\"" "${NAMES[@]}" ${VM16K:-} ${XNU_ARGS:-} \
     > /var/tmp/xnu-insmod.log 2>&1 < /dev/null &
   sleep 5
   if sudo dmesg | grep -aE "fki: carve-out .* (overlaps|is not all RAM)" >/dev/null; then	# a configuration error: no retry
@@ -159,7 +162,7 @@ for try in 1 2 3 4 5 6 7 8 9; do
   fi
   echo "no contiguous memory for XNU yet: trying again in 20 s"; sleep 20
 done
-echo "booting: console scripts/xnu-console.sh, screen tools/hosted/fb2png.py $FB_DUMP"
+echo "booting: console scripts/xnu-console.sh, screen tools/hosted/fb2png.py --watch $FB_DUMP $FB_WIDTH $FB_HEIGHT /tmp/xnu.png"
 [ $WAIT = 1 ] || exit 0
 
 # --wait: until the run ends (insmod returns), then keep its kernel log and say how it ended: 0 a halt (from inside, or

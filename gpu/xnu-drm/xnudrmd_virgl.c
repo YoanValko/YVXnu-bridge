@@ -35,6 +35,14 @@ static void *cmdbuf;
 
 static int vgerr(int r) { return r < 0 ? r : r > 0 ? -r : 0; }
 
+static int page_len(uint64_t bytes, size_t *rounded)
+{
+	if (!bytes || bytes > SIZE_MAX || bytes > SIZE_MAX - 4095)
+		return -EINVAL;
+	*rounded = (size_t)((bytes + 4095) & ~(uint64_t)4095);
+	return *rounded ? 0 : -E2BIG;
+}
+
 static void write_context_fence(void *cookie, uint32_t ctx, uint32_t ring, uint64_t id)
 {
 	struct fence *f = &fences[id & (VG_FENCES - 1)];
@@ -183,6 +191,7 @@ static int do_ioctl(uint32_t c, uint32_t nr, uint8_t *p, uint32_t plen)
 		struct drm_virtgpu_execbuffer *a = (void *)p; NEED(*a);
 		uint32_t id = 0;
 		if (a->num_in_syncobjs || a->num_out_syncobjs || (a->flags & VIRTGPU_EXECBUF_FENCE_FD_IN)) return -EOPNOTSUPP;
+		if (a->size & 3) return -EINVAL;
 		if (ptr_field(plen, a->command, a->size)) return -EINVAL;
 		if (clients[c] != 2) return -EINVAL;
 		a->fence_fd = -1;
@@ -212,10 +221,10 @@ static int do_map(uint32_t c, struct xnudrm_hdr *h, uint8_t *out, uint32_t *outl
 {
 	uint32_t id = (uint32_t)h->arg0, nr = 0;
 	struct res *rs = id && id < VG_RES ? &res[id] : NULL;
-	size_t len = (h->arg1 + 4095) & ~(size_t)4095;
+	size_t len;
 	int r;
 
-	if (!rs || rs->client != c || !len) return -EINVAL;
+	if (!rs || rs->client != c || page_len(h->arg1, &len)) return -EINVAL;
 	if (!rs->va) {
 		void *va = NULL;
 		uint64_t maplen = 0;
@@ -231,7 +240,8 @@ static int do_map(uint32_t c, struct xnudrm_hdr *h, uint8_t *out, uint32_t *outl
 		rs->maplen = maplen;
 		rs->pinned = !r;
 	}
-	if (len > ((rs->maplen + 4095) & ~(uint64_t)4095)) return -EINVAL;
+	size_t maplen;
+	if (page_len(rs->maplen, &maplen) || len > maplen) return -EINVAL;
 	if ((r = xnudrmd_ranges(rs->va, len, (struct xnudrm_range *)out, &nr))) return r;
 	h->arg0 = id;	/* the map's id */
 	*outlen = nr * sizeof(struct xnudrm_range);

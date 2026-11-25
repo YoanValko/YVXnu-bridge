@@ -342,12 +342,21 @@ bool XnuDisplay::start(IOService *provider)
     PE_parse_boot_argn("droidvm-display-hz", &fRefreshHz, sizeof(fRefreshHz));
     if (fRefreshHz < 30 || fRefreshHz > 240)
         fRefreshHz = 120;
-    if (getPlatform()->getConsoleInfo(&fVideo) != kIOReturnSuccess || !fVideo.v_baseAddr || fVideo.v_depth != 32) {
+    if (getPlatform()->getConsoleInfo(&fVideo) != kIOReturnSuccess || !fVideo.v_baseAddr || fVideo.v_depth != 32 ||
+        !fVideo.v_width || !fVideo.v_height || fVideo.v_rowBytes < fVideo.v_width * 4 ||
+        fVideo.v_height > ~static_cast<vm_size_t>(0) / fVideo.v_rowBytes) {
         IOLog("XnuDisplay: no 32-bit boot framebuffer (base %#lx depth %lu)\n", fVideo.v_baseAddr, fVideo.v_depth);
         return false;
     }
-    IOMemoryDescriptor *memory = IOMemoryDescriptor::withPhysicalAddress(fVideo.v_baseAddr & ~3UL, fVideo.v_rowBytes * fVideo.v_height,
-                                                                         kIODirectionInOut);
+    vm_offset_t physicalBase = fVideo.v_baseAddr & ~static_cast<vm_offset_t>(3);
+    vm_size_t physicalOffset = fVideo.v_baseAddr - physicalBase;
+    vm_size_t framebufferBytes = fVideo.v_rowBytes * fVideo.v_height;
+    if (framebufferBytes > ~static_cast<vm_size_t>(0) - physicalOffset) {
+        IOLog("XnuDisplay: framebuffer size overflows the mapping\n");
+        return false;
+    }
+    IOMemoryDescriptor *memory = IOMemoryDescriptor::withPhysicalAddress(physicalBase, physicalOffset + framebufferBytes,
+                                                                           kIODirectionInOut);
     if (memory) {
         // xnulinux: cacheable like Linux's own mapping of the same pages (the host reads the frames through it), not write-combined
         fScanoutMap = memory->createMappingInTask(kernel_task, 0, kIOMapAnywhere | kIOMapDefaultCache);
@@ -357,7 +366,7 @@ bool XnuDisplay::start(IOService *provider)
         IOLog("XnuDisplay: cannot map the framebuffer at %#lx\n", fVideo.v_baseAddr);
         return false;
     }
-    fScanout = reinterpret_cast<uint8_t *>(fScanoutMap->getVirtualAddress());
+    fScanout = reinterpret_cast<uint8_t *>(fScanoutMap->getVirtualAddress()) + physicalOffset;
     IOLog("XnuDisplay: scanout %#lx %lux%lu row %lu\n", fVideo.v_baseAddr, fVideo.v_width, fVideo.v_height, fVideo.v_rowBytes);
     // Clear to a solid colour until the first frame: the boot console's text goes away and the screen shows that this mapping reaches it.
     for (unsigned long y = 0; y < fVideo.v_height; y++) {

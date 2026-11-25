@@ -53,6 +53,23 @@ static u64 hc_seq;			/* the call in flight (0: none) */
 static int hc_state;			/* 0 idle, 1 request waiting, 2 read by the service, 3 replied */
 static long hc_result;
 static int hc_open;			/* the service's opens of /dev/xnu-hostcall (0: no service, calls fail at once) */
+static bool hc_registered;
+
+static void hc_fail_current(long result)
+{
+	bool wake = false;
+
+	spin_lock(&hc_lock);
+	if (hc_state == 2) {
+		hc_len = 0;
+		hc_result = result;
+		hc_state = 3;
+		wake = true;
+	}
+	spin_unlock(&hc_lock);
+	if (wake)
+		wake_up(&hc_done_wait);
+}
 
 struct hc_call { const void *req; unsigned long len; void *reply; unsigned long max; long result; };
 static DEFINE_MUTEX(hc_mutex);		/* one call at a time through the single slot (several CPUs may call) */
@@ -141,13 +158,17 @@ static ssize_t hc_read(struct file *f, char __user *buf, size_t n, loff_t *off)
 		spin_unlock(&hc_lock);
 		return -EAGAIN;
 	}
+	if (n < 8 + hc_len) {
+		spin_unlock(&hc_lock);
+		return -EMSGSIZE;
+	}
 	hc_state = 2;
 	seq = hc_seq;
 	spin_unlock(&hc_lock);
-	if (n < 8 + hc_len)
-		return -EMSGSIZE;
-	if (copy_to_user(buf, &seq, 8) || copy_to_user(buf + 8, hc_buf, hc_len))
+	if (copy_to_user(buf, &seq, 8) || copy_to_user(buf + 8, hc_buf, hc_len)) {
+		hc_fail_current(-EFAULT);
 		return -EFAULT;
+	}
 	return 8 + hc_len;
 }
 
@@ -156,18 +177,24 @@ static ssize_t hc_write(struct file *f, const char __user *buf, size_t n, loff_t
 {
 	u64 seq;
 
-	if (n < 8 || n - 8 > HC_MAX)
+	if (n < 8 || n - 8 > HC_MAX) {
+		hc_fail_current(-EINVAL);
 		return -EINVAL;
-	if (copy_from_user(&seq, buf, 8))
+	}
+	if (copy_from_user(&seq, buf, 8)) {
+		hc_fail_current(-EFAULT);
 		return -EFAULT;
+	}
 	spin_lock(&hc_lock);
 	if (hc_state != 2 || seq != hc_seq) {
 		spin_unlock(&hc_lock);
 		return -ESTALE;		/* the call timed out meanwhile */
 	}
 	spin_unlock(&hc_lock);
-	if (copy_from_user(hc_buf, buf + 8, n - 8))
+	if (copy_from_user(hc_buf, buf + 8, n - 8)) {
+		hc_fail_current(-EFAULT);
 		return -EFAULT;
+	}
 	hc_len = n - 8;
 	hc_result = 0;
 	WRITE_ONCE(hc_state, 3);
@@ -208,6 +235,8 @@ static long hc_xlate(struct xnu_hostcall_xlate __user *ua)
 	if (copy_from_user(&a, ua, sizeof(a)))
 		return -EFAULT;
 	if ((a.va | a.len) & (PAGE_SIZE - 1))
+		return -EINVAL;
+	if (a.va + a.len < a.va)
 		return -EINVAL;
 	n = a.len >> PAGE_SHIFT;
 	if (n > a.max)
@@ -363,12 +392,18 @@ static struct miscdevice hc_dev = {
 
 int fki_hostcall_init(void)
 {
-	return misc_register(&hc_dev);
+	int err = misc_register(&hc_dev);
+	if (!err)
+		hc_registered = true;
+	return err;
 }
 
 void fki_hostcall_exit(void)
 {
-	misc_deregister(&hc_dev);
+	if (hc_registered) {
+		misc_deregister(&hc_dev);
+		hc_registered = false;
+	}
 	kvfree(hc_buf);
 	hc_buf = NULL;
 }

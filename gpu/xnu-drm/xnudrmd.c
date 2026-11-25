@@ -48,6 +48,15 @@ static uint8_t *msg, *rep;
 
 static int client_fd(uint32_t c) { return c && c < MAX_CLIENTS && clients[c] ? clients[c] - 1 : -1; }
 
+/* Convert a byte count to a non-zero, page-aligned size without wrapping. */
+static int page_len(uint64_t bytes, size_t *rounded)
+{
+	if (!bytes || bytes > SIZE_MAX || bytes > SIZE_MAX - 4095)
+		return -EINVAL;
+	*rounded = (size_t)((bytes + 4095) & ~(uint64_t)4095);
+	return *rounded ? 0 : -E2BIG;
+}
+
 /* A pointer field of an ioctl struct: an offset into the payload, checked to lie inside it with len bytes. */
 static int ptr_field(uint8_t *payload, uint32_t plen, __u64 *field, uint64_t len)
 {
@@ -113,6 +122,7 @@ static int do_ioctl(int fd, uint32_t client, uint32_t nr, uint8_t *p, uint32_t p
 	case DRM_COMMAND_BASE + DRM_VIRTGPU_EXECBUFFER: {
 		struct drm_virtgpu_execbuffer *a = (void *)p; NEED(*a);
 		if (a->num_in_syncobjs || a->num_out_syncobjs || (a->flags & VIRTGPU_EXECBUF_FENCE_FD_IN)) return -EOPNOTSUPP;
+		if (a->size & 3) return -EINVAL;
 		if ((r = ptr_field(p, plen, &a->command, a->size))) return r;
 		if ((r = ptr_field(p, plen, &a->bo_handles, (uint64_t)a->num_bo_handles * 4))) return r;
 		a->fence_fd = -1;
@@ -137,7 +147,9 @@ static int do_ioctl(int fd, uint32_t client, uint32_t nr, uint8_t *p, uint32_t p
 
 int xnudrmd_pin(void *va, size_t len)
 {
-	struct xnu_hostcall_range r = { (uintptr_t)va, (len + 4095) & ~(size_t)4095 };
+	size_t rounded;
+	if (!va || page_len(len, &rounded)) return -EINVAL;
+	struct xnu_hostcall_range r = { (uintptr_t)va, rounded };
 	return ioctl(hc, XNU_HOSTCALL_PIN, &r) ? -errno : 0;
 }
 
@@ -152,6 +164,8 @@ int xnudrmd_ranges(void *va, size_t len, struct xnudrm_range *rg, uint32_t *nr)
 	uint32_t maxr = (XNUDRM_MAX_MSG - sizeof(struct xnudrm_hdr)) / sizeof(*rg);
 	size_t i, n = len >> 12;
 	uint64_t *pa;
+	if (!va || !rg || !nr || !len || (len & 4095) || n > SIZE_MAX / sizeof(*pa)) return -EINVAL;
+	if (n > UINT32_MAX) return -E2BIG;
 
 	for (i = 0; i < n; i++) (void)*(volatile uint8_t *)((uint8_t *)va + (i << 12));	/* fault every page in */
 	pa = malloc(n * 8);
@@ -170,14 +184,15 @@ int xnudrmd_ranges(void *va, size_t len, struct xnudrm_range *rg, uint32_t *nr)
 
 static int do_map(int fd, uint32_t client, struct xnudrm_hdr *h, uint8_t *out, uint32_t *outlen)
 {
-	struct drm_virtgpu_map m = { .handle = (uint32_t)h->arg0 };
-	size_t len = (h->arg1 + 4095) & ~(size_t)4095;
+	size_t len;
+	struct drm_virtgpu_map m;
 	struct xnudrm_range *rg = (void *)out;
 	uint32_t nr = 0;
 	int id, r;
 	void *va;
 
-	if (!len) return -EINVAL;
+	if (h->arg0 > UINT32_MAX || page_len(h->arg1, &len)) return -EINVAL;
+	m = (struct drm_virtgpu_map){ .handle = (uint32_t)h->arg0 };
 	for (id = 1; id < MAX_MAPS && maps[id].va; id++) ;
 	if (id == MAX_MAPS) return -ENOMEM;
 	if (ioctl(fd, DRM_IOCTL_VIRTGPU_MAP, &m)) return -errno;
@@ -303,7 +318,9 @@ int main(int argc, char **argv)
 	if (hc < 0) { perror("/dev/xnu-hostcall"); return 1; }
 	msg = malloc(8 + XNUDRM_MAX_MSG + sizeof(struct xnudrm_hdr));
 	rep = malloc(8 + XNUDRM_MAX_MSG + sizeof(struct xnudrm_hdr));
-	if (!msg || !rep) return 1;
+	if (!msg || !rep) {
+		free(msg); free(rep); close(hc); return 1;
+	}
 	fprintf(stderr, "xnudrmd: serving %s\n", virgl ? "virglrenderer (Venus)" : node);
 	for (;;) {
 		ssize_t n = read(hc, msg, 8 + XNUDRM_MAX_MSG + sizeof(struct xnudrm_hdr));
