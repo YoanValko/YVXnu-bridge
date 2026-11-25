@@ -25,8 +25,8 @@ backend-info:
 	@if [ "$(VIRGL)" = 1 ]; then echo "GPU bridge backend: virtio-gpu + virglrenderer/Venus"; else echo "GPU bridge backend: virtio-gpu only (run scripts/install-virgl.sh for Venus)"; fi
 # the backend alone, on the host's Vulkan driver (no fki, no hosted system)
 test-virgl: test/virgl_smoke.c xnudrmd_virgl.c xnudrm_proto.h xnudrmd.h
-	@if [ "$(VIRGL)" != 1 ]; then echo "VirGL smoke test skipped (VirGL development files unavailable)"; exit 0; fi
-	$(CC) $(CFLAGS) -I. -o test/virgl_smoke test/virgl_smoke.c xnudrmd_virgl.c $(LDLIBS)
+	@if [ "$(VIRGL)" != 1 ]; then echo "VirGL smoke test skipped (VirGL development files unavailable)"; exit 0; fi; \
+	$(CC) $(CFLAGS) -I. -o test/virgl_smoke test/virgl_smoke.c xnudrmd_virgl.c $(LDLIBS); \
 	test/virgl_smoke
 clean:
 	rm -f xnudrmd test/virgl_smoke

@@ -24,4 +24,6 @@ jobs:
           sudo apt-get install -y build-essential pkg-config python3 linux-headers-$(uname -r) libdrm-dev libvirglrenderer-dev libvirglrenderer1
 
       - name: Run non-loading checks
-        run: make check
+        # GitHub-hosted runners do not provide a VirGL render context. The
+        # local smoke test remains available with the project's VirGL setup.
+        run: make check VIRGL=0
