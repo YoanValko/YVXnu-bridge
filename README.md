@@ -1,4 +1,5 @@
 <div align="center">
+  <img src="docs/images/yvxnu-bridge-logo.svg" alt="YVXnu-bridge split glass face and Linux penguin logo" width="180">
   <h1>YVXnu-bridge</h1>
   <p><strong>Experimental XNU-on-Linux hosting and GPU integration</strong></p>
   <p>
@@ -24,6 +25,19 @@ networking, storage, and GPU-bridge pieces for the ARM64 hosted-system path.
 > **Project status:** experimental research software. The AMD64 port currently
 > provides a safe, parse-only XNU bring-up loader and non-loading validation
 > tests. It does **not** boot macOS on a generic x86-64 Linux PC.
+
+## Start safely
+
+Build and test the current AMD64 port without loading a kernel module:
+
+```sh
+git clone https://github.com/YoanValko/YVXnu-bridge.git && \
+  cd YVXnu-bridge && \
+  make check
+```
+
+`make check` is the supported first test. It builds the modules, runs the host
+tests, and leaves your running Linux kernel unchanged.
 
 ## What works today
 
