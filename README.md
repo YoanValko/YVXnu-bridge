@@ -1,213 +1,159 @@
-# xnulinux
+# XNUBridge
 
-Run macOS userspace on Linux by loading the macOS kernel into it.
+**An experimental bridge for researching XNU on Linux.**
 
-xnulinux builds XNU, the open-source kernel of macOS, from Apple's published sources and runs it as a loadable kernel
-module (`xnu.ko`) inside an unmodified arm64 Linux kernel. The hosted XNU drives the CPU and MMU directly, so macOS
-processes run natively next to Linux processes on the same CPUs, with no hypervisor between them. Linux lends XNU its
-memory, timers, files, network and GPU through a small interface module (`fki.ko`).
+XNUBridge explores how Apple's open-source XNU kernel can be hosted alongside a
+Linux kernel through a small foreign-kernel interface (FKI). The project also
+contains Linux-side display, input, networking, storage, and GPU-bridge pieces
+for the ARM64 hosted-system path.
 
-With a stock Ubuntu kernel, `insmod xnu.ko` boots a macOS 27 system disk made by Apple's own installer to the
-desktop: loginwindow, WindowServer, Dock, Finder, Safari and Chrome.
+> **Project status:** experimental research software. The AMD64 port currently
+> provides a safe, parse-only XNU bring-up loader and non-loading validation
+> tests. It does **not** boot macOS on a generic x86-64 Linux PC.
 
-![macOS and Linux userspace side by side](docs/images/macos-and-linux.jpg)
+## What works today
 
-*One system, two userspaces. Left: a Terminal in the hosted macOS 27.2.1 (`sw_vers`, the Darwin kernel, launchd,
-WindowServer, Dock and Finder running). Right: from that macOS, an SSH session into the Linux it runs inside (Ubuntu,
-Linux 7.0, the `xnu` and `fki` modules loaded, and the `insmod xnu.ko` process the macOS kernel runs in).
-Straight from the hosted framebuffer, 1280×800.*
+| Area | Status |
+| --- | --- |
+| Ubuntu/Linux x86-64 build | Builds `fki.ko`, the AMD64 FKI backend, and `xnu.ko` |
+| AMD64 XNU loader | Mach-O validation and ABI bring-up; parse-only by design |
+| AMD64 validation | Mach-O, stack-switch, world-switch, ABI, and assembly checks |
+| Linux GPU bridge | Virtio-GPU + VirGL/Venus userspace bridge with smoke tests |
+| Hosted display tools | Framebuffer conversion and validated keyboard/pointer input |
+| ARM64 hosted path | Existing experimental path; see [`docs/`](docs/) for platform-specific requirements |
 
-![The hosted macOS desktop](docs/images/desktop.jpg)
+XNUBridge does not distribute macOS, Apple system disks, Apple kexts, or other
+Apple-only binaries. Those components remain the responsibility of the user,
+subject to Apple's licences and applicable law.
 
-*The hosted desktop at the end of a 30-minute stress run, rendered on the CPU (no GPU bridge).*
+## Architecture
 
-| | |
-|---|---|
-| ![Safari on Wikipedia's XNU article](docs/images/safari-xnu.jpg) | ![Safari on kernel.org](docs/images/safari-kernel-org.jpg) |
-| ![Safari on GitHub](docs/images/safari-github.jpg) | |
-
-*Safari in the hosted macOS: Wikipedia's article on XNU, kernel.org and the Linux repository on GitHub, over the
-hosted system's network link through Linux, with the GPU bridge on (`GPU=auto`).*
-
-![Hosted macOS running on bare-metal NVIDIA DGX Spark](docs/images/dgx-spark.jpg)
-
-*Bare-metal NVIDIA DGX Spark (Ubuntu 24.04.5 LTS aarch64, Linux `7.0.0-1025-nvidia`): hosted macOS 27 running with
-4 CPUs and 8 GiB of RAM (CPU rendering), shown over macOS Screen Sharing alongside an SSH session from the DGX Spark
-host into the hosted Darwin userspace.*
-
-![About This Mac and sysctl on bare-metal NVIDIA DGX Spark](docs/images/dgx-spark-about.jpg)
-
-*Inside the hosted macOS on DGX Spark: About This Mac (`Chip: Unknown`, `7.80 GB` memory, `macOS Golden Gate 27.2`)
-alongside `sysctl machdep.cpu` (`ARM processor`, `hw.cpufamily: 0`, `hw.ncpu: 4`) and `hw.optional.arm`.*
-
-## How it works
-
-```
- macOS processes (launchd, WindowServer, Safari...)    Linux processes (systemd, sshd, xnudrmd...)
- ──────────────────────────────────────────────────    ────────────────────────────────────────────
- XNU (source-built, LINUX64 machine layer, kexts)  │
-   ↕ linux64 host calls (xnu-patches/include/linux64_abi.h)
- xnu.ko   (APSL side: loads and runs the kernel collection)
-   ↕ FKI, the foreign kernel interface (fki_*)
- fki.ko   (GPL side: CPUs, memory, faults, IPIs, files, network, host calls)
- Linux kernel (stock distro kernel, 4K pages, PAC)
+```text
+                    hosted XNU / Darwin code
+                              |
+                         xnu.ko (APSL)
+                              |
+                  foreign kernel interface (FKI)
+                              |
+                         fki.ko (GPL)
+                              |
+                       Linux kernel / drivers
+                              |
+            display · input · storage · network · GPU bridge
 ```
 
-- **CPUs**: each hosted CPU is a Linux kernel thread pinned to a Linux CPU. XNU runs on it until it calls the host
-  (idle, I/O, a timer); Linux keeps its own exception vectors, and `fki.ko` forwards the faults and user exceptions of
-  XNU code to XNU's handlers.
-- **Memory**: XNU gets one physically contiguous block from Linux (CMA) and manages it with its own pmap; XNU and Linux
-  share the user half of the address space layout (4K pages).
-- **Devices**: kexts in `kexts/` give macOS a disk (a file on the Linux side), a display (a framebuffer Linux reads), a
-  keyboard and pointer, an Ethernet link (a Linux network interface), a keystore and a GPU bridge.
-- **GPU**: Metal in the hosted macOS runs on `gpu/xnu-cpu-metal` (metal2vulkan over Vulkan). Vulkan reaches the Linux
-  host's GPU through the DRM bridge (`kexts/XnuDrm` → host call → `gpu/xnu-drm/xnudrmd` → the Linux render node), using
-  Mesa's Venus driver; without a supported DRM bridge backend it falls back to Mesa lavapipe on the CPU.
+The AMD64 path intentionally stops before machine-layer execution. This keeps
+the current bring-up work useful for validating image formats and calling
+conventions without asking a normal Linux installation to execute an
+unsupported kernel image.
 
-## Status
+## Quick start: Ubuntu x86-64
 
-Working on two arm64 Linux setups:
-
-- **Apple Silicon Mac in an arm64 Linux VM (`krunkit`, 1 to 6 hosted CPUs)**:
-  - macOS 27.2.1 boots to the desktop with auto-login in 31–48 s (an Apple Virtualization macOS VM on the same Mac:
-    49 s).
-  - Apps open and quit, Spotlight and the file system work; a 30-minute stress run (40 rounds of Safari, Notes,
-    Calculator, TextEdit, System Settings, Spotlight and a disk walk) finishes with no panic and no crash report.
-  - Runs as a systemd service: started at boot, stopped cleanly with the VM, restarted after a hosted-kernel panic, each
-    run's log kept in `/var/log/xnulinux/`.
-  - The GPU bridge gives hosted apps the host GPU (`Virtio-GPU Venus (Apple M5 Max)`) and is enabled by default
-    (`GPU=auto`) when a virtio-gpu render node is present, falling back to CPU rendering (`GPU=off`) otherwise.
-- **Bare-metal NVIDIA DGX Spark (Ubuntu 24.04.5 LTS aarch64, Linux `7.0.0-1025-nvidia`)**:
-  - Boots to the full macOS desktop (Screen Sharing and SSH working) directly on bare-metal arm64 Linux with `CPUS=4`
-    and 8 GiB of RAM reserved for XNU.
-  - Currently renders on the CPU (Mesa lavapipe, `GPU=off`): `xnudrmd` only forwards `virtio-gpu` (Venus) ioctls today,
-    so hardware GPU pass-through on the GB10 GPU requires a new DRM bridge backend.
-
-Shipping it as a hosted service (what is distributed, what a user installs to run Apple's macOS) is in
-[`docs/hosted-service.md`](docs/hosted-service.md).
-
-What is still a stopgap is listed in [`docs/production.md`](docs/production.md). Notably: the OS cryptex is merged into
-the system volume, AMFI is patched and SIP relaxed, and memory access is slower than a native VM (4K pages vs 16K).
-
-## Requirements
-
-- An arm64 Linux host with PAC (`FEAT_PAuth`), 4K pages, and at least 16 GB of RAM (8 GB reserved for the hosted
-  kernel). Tested on:
-  - **NVIDIA DGX Spark** (bare-metal Ubuntu 24.04.5 LTS aarch64, Linux `7.0.0-1025-nvidia`; CPU rendering for now).
-  - **Apple Silicon Mac (M1 or later)** running an arm64 Linux VM (`krunkit` for GPU access via virtio-gpu Venus, or
-    `tart`).
-- A Mac with Xcode to make the system disk and build the GPU parts.
-- A macOS 27 installation (an Apple Virtualization VM disk) of your own. **No Apple binaries are in this repository or
-  distributed by it**: the kexts Apple ships, the macOS system disk and its trust cache come from your own installation.
-
-## Building and running
-
-### Ubuntu AMD64 host build
-
-On an x86-64 Ubuntu kernel, build the AMD64 bring-up modules with:
+Install the build dependencies:
 
 ```sh
-make
+sudo apt update
+sudo apt install -y \
+  git build-essential pkg-config python3 \
+  linux-headers-$(uname -r) \
+  libdrm-dev libvirglrenderer-dev libvirglrenderer1
 ```
 
-This produces `fki-ko/fki.ko` and the parse-only `xnu-ko/xnu.ko` using the
-running kernel's headers. The xnu module validates x86-64 Mach-O images but
-does not boot macOS; a native AMD64 Darwin machine layer is still required for
-that (see
-[`docs/amd64-port.md`](docs/amd64-port.md)).
-
-The non-loading checks are:
+Clone the project and run the complete non-loading check suite:
 
 ```sh
+git clone https://github.com/YoanValko/xnu-bridge.git
+cd xnu-bridge
+make check
+```
+
+`make check` builds the modules, compiles the GPU bridge, checks the hosted
+desktop tools, and runs the AMD64 tests. It does **not** call `insmod`,
+`rmmod`, or touch the host GPU. The generated modules are:
+
+```text
+fki-ko/fki.ko
+xnu-ko/xnu.ko
+```
+
+If VirGL development files are unavailable and you cannot install system
+packages, use the project-local helper instead:
+
+```sh
+./scripts/install-virgl.sh
+make check
+```
+
+## Safety
+
+The AMD64 loader is parse-only. Do not load it into the kernel on a main or
+production machine:
+
+```sh
+# Not supported on a normal host:
+# sudo insmod fki-ko/fki.ko
+# sudo insmod xnu-ko/xnu.ko
+```
+
+Kernel-module experiments belong in a disposable VM or a machine with a tested
+recovery path. A successful build is not evidence that an XNU image can boot
+on the host.
+
+## Useful targets
+
+```sh
+make                 # build the kernel modules and GPU daemon
+make check           # complete non-loading validation suite
+make gpu-check       # build and smoke-test the Linux GPU bridge
+make hosted-desktop-check
 make x86-macho-check x86-world-test x86-stack-test x86-abi-check x86-world-check
 ```
 
-They exercise Mach-O rejection/entry parsing, the alternate-stack ABI, the
-x86-64 register-preserving world switch, and the shared Linux↔XNU ABI syntax in
-userspace; they do not insert a kernel module.
+For implementation details, see:
 
-The hosted display helpers can be checked without loading anything too:
+- [`docs/amd64-port.md`](docs/amd64-port.md) — AMD64 scope and limitations
+- [`docs/hosted-service.md`](docs/hosted-service.md) — ARM64 hosted-service workflow
+- [`docs/production.md`](docs/production.md) — known stopgaps and production gaps
+
+## Repository layout
+
+| Directory | Purpose |
+| --- | --- |
+| `fki-ko/` | Linux-side foreign-kernel interface module |
+| `xnu-ko/` | XNU loader and architecture-specific bring-up code |
+| `xnu-patches/` | Shared Linux↔XNU ABI and machine-layer patches |
+| `kexts/` | Hosted display, input, storage, networking, and DRM components |
+| `gpu/xnu-drm/` | Linux-side DRM/Venus bridge daemon |
+| `scripts/` | Build, boot, and local dependency helpers |
+| `tools/hosted/` | Framebuffer and input utilities |
+| `tests/` | Host-side ABI and architecture validation tests |
+
+## Contributing
+
+Please keep changes small and architecture-specific where possible. Before
+opening a pull request:
 
 ```sh
-make hosted-desktop-check
+make check
+git diff --check
 ```
 
-The Linux DRM/Venus bridge can be compiled independently with:
+When changing a kernel module, include the host kernel version and the exact
+test target you ran. Never include macOS system images, private keys, or other
+Apple-provided binaries in a pull request.
 
-```sh
-make gpu-check
-```
+## Licensing
 
-It only builds the daemon; it does not open `/dev/xnu-hostcall`, load a
-kernel module, or touch the host GPU.
-
-If `make gpu-check` reports that VirGL is missing and sudo is unavailable,
-install the Ubuntu packages locally with `scripts/install-virgl.sh`. This
-places only development files under `.deps/virgl`; it does not modify the
-system package database.
-
-For the final Ubuntu AMD64 preflight, run `make check`. It builds both
-modules, compiles the GPU daemon, validates the desktop tools and runs every
-x86 non-loading test; it never calls `insmod` or `rmmod`.
-
-On the ARM64 hosted system, convert one framebuffer dump with
-`tools/hosted/fb2png.py /var/tmp/xnu-fb.raw 1280 800 /tmp/xnu.png`, or keep a
-PNG updated while the system runs with `--watch`. Send pointer and keyboard
-events with `tools/hosted/xnu-input.py`; coordinates are clamped to the chosen
-screen size and malformed commands are rejected instead of producing partial
-input.
-
-1. `scripts/vm-xnu-build.sh` (on the arm64 Linux host, once): sets up the macOS-DroidVM Linux toolchain and builds XNU
-   (`xnu-12377.121.6`) natively on arm64.
-2. `scripts/vm-xnu-rebuild.sh`: applies `xnu-patches/`, builds the kernel and `kexts/`, and links the kernel collection
-   with Apple's kexts from your macOS installation (`scripts/kclink`). To link that collection without building
-   anything, `scripts/apple-kc/link.sh`, on the machine that runs `xnu.ko`, takes a kit of the built kernel and kexts
-   and macOS 27.2's kernelcache, read from Apple's IPSW ([docs/free-kc.md](docs/free-kc.md)).
-3. `scripts/mk-macvm-disk.sh` (on the Mac): turns a macOS VM disk made by Apple's installer into the hosted system's disk
-   and copies it into the Linux VM.
-4. `scripts/xnulinux-boot.sh` (on the arm64 Linux host): builds `fki.ko` and `xnu.ko` against the running kernel, brings
-   up the network (and the GPU bridge when there is a render node) and boots the hosted system. Its console is
-   `scripts/xnu-console.sh`, its screen `tools/hosted/fb2png.py`, input `tools/hosted/xnu-input.py`. On a bare-metal
-   host (such as a DGX Spark), set the carve-out (`mem=`, `carve_base=`, `carve_mb=`) to fit the machine's physical
-   memory layout, and set `GPU=off` (`xnudrmd` supports only virtio-gpu for now).
-5. `scripts/install-service.sh` (on the arm64 Linux host): runs it as `xnulinux.service`, configured in
-   `/etc/xnulinux.conf` (CPUs, memory, disk, GPU). On the Mac, `scripts/install-krun-agent.sh` keeps the VM itself
-   running.
-6. GPU (optional, on the Mac): `gpu/venus/build-darwin.sh` builds the hosted Vulkan driver, `gpu/xnu-cpu-metal/` the
-   Metal plugin (see its README).
-
-## Repository layout and licenses
-
-The Linux side and the XNU side are kept apart by license and meet only at FKI. Every source file carries an
-`SPDX-License-Identifier`; the license texts are in [`LICENSES/`](LICENSES).
-
-| Path | License | What |
-|---|---|---|
-| `fki-ko/`, `linux/` | GPL-2.0-only | FKI: the out-of-tree module for stock kernels, and the same as an in-tree driver |
-| `xnu-ko/` | APSL-2.0 | `xnu.ko`: loads XNU's kernel collection and runs it; calls Linux only through `fki_*` |
-| `xnu-patches/` | APSL-2.0 | The LINUX64 machine layer and the other changes to XNU's sources, and their shared headers |
-| `kexts/` | APSL-2.0 | The hosted system's kexts (CPU, disk, keystore, Metal accelerator, DRM bridge) |
-| `kexts/XnuDisplay/`, `kexts/XnuEthernet/`, `kexts/XnuInput/` | BSD-2-Clause-Patent | Derived from [macOS-DroidVM](https://github.com/Droid-VM/macOS-DroidVM)'s kexts |
-| `gpu/xnu-cpu-metal/` | GPL-2.0-or-later | The Metal plugin over metal2vulkan (GPL-2.0-or-later); `XnuCpuMetalShim.h` is BSD-2-Clause-Patent (from [AdrenoMetal](https://github.com/UniXNU/AdrenoMetal)) |
-| `gpu/xnu-drm/` | GPL-2.0-only, MIT | `xnudrmd` (the Linux end of the DRM bridge) is GPL; the protocol header and `darwin/` (built into Mesa) are MIT |
-| `gpu/venus/` | GPL-2.0-only; patches MIT | Build scripts and tests; the patches to Mesa and virglrenderer are under their upstream license (MIT) |
-| `gpu/xnu-cpu-metal/patches/` | upstream's | Patches to Mesa (MIT) and metal2vulkan (GPL-2.0-or-later) |
-| `scripts/`, `tools/`, `tests/`, `docs/` | GPL-2.0-only | Build, disk, boot, debugging and test tools; documentation |
-
-`xnu.ko` is on the XNU side of the line: it runs XNU's code in its own address space, so it is APSL-2.0 like XNU, and
-Linux reports it as a non-GPL module (`MODULE_LICENSE("Proprietary")`, which taints the kernel as ZFS does). It must not
-include Linux headers beyond the module ABI, call Linux functions other than `fki_*`, or carry Linux code. Upstream code
-(XNU, macOS-DroidVM's toolchain, Mesa, metal2vulkan, the Vulkan loader, LLVM) is fetched at pinned revisions and patched at
-build time; it is never committed.
+This repository contains components under multiple licences. See
+[`LICENSES/`](LICENSES/) and the SPDX headers in each source file before
+redistributing or combining components. XNUBridge is not affiliated with or
+endorsed by Apple; macOS, XNU, and Metal are Apple trademarks.
 
 ## Acknowledgements
 
-- [macOS-DroidVM](https://github.com/Droid-VM/macOS-DroidVM) and [UniXNU](https://github.com/UniXNU): the 4K-page XNU
-  base, the Linux-hosted XNU toolchain, and the display, Ethernet and input kexts these are derived from.
-- [metal2vulkan](https://github.com/steelbrain/metal2vulkan), [Mesa](https://mesa3d.org) (Venus, lavapipe),
-  [virglrenderer](https://gitlab.freedesktop.org/virgl/virglrenderer) and [krunkit](https://github.com/containers/krunkit).
-- Apple's open-source XNU.
-
-macOS, Metal and XNU are trademarks of Apple Inc. This project is not affiliated with or endorsed by Apple.
-
-Copyright © 2026 Heyang Zhou and contributors.
+The project builds on ideas and open-source work from
+[macOS-DroidVM](https://github.com/Droid-VM/macOS-DroidVM),
+[UniXNU](https://github.com/UniXNU),
+[Mesa](https://mesa3d.org),
+[virglrenderer](https://gitlab.freedesktop.org/virgl/virglrenderer), and the
+Apple XNU open-source releases.
