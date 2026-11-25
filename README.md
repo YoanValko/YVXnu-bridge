@@ -78,6 +78,22 @@ automatic display resizing, mouse integration, and time synchronization. See
 the [Ubuntu VMware Tools guide](https://help.ubuntu.com/community/VMware/Tools)
 for host-specific notes.
 
+## macOS desktop path
+
+The repository includes the experimental hosted macOS desktop path for ARM64,
+but it cannot run inside GitHub Actions or on the current AMD64 loader. A real
+desktop test needs:
+
+1. An ARM64 Linux host or ARM64 Linux VM with the required device support.
+2. A macOS system disk and kernel kit prepared from your own Mac installation.
+3. The display, input, storage, network, and optional GPU setup described in
+   [`docs/hosted-service.md`](docs/hosted-service.md).
+
+The GitHub **Checks** workflow only builds the modules and runs non-loading
+tests. It deliberately does not boot a macOS desktop, load `xnu.ko`, or use an
+Apple system disk. On an x86-64 Ubuntu VM, `make check` is the supported test;
+the result is a validated AMD64 bring-up, not a desktop boot.
+
 ## What works today
 
 | Area | Status |
