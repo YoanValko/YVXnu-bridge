@@ -1,8 +1,8 @@
-# XNUBridge
+# YVXnu-bridge
 
 **An experimental bridge for researching XNU on Linux.**
 
-XNUBridge explores how Apple's open-source XNU kernel can be hosted alongside a
+YVXnu-bridge explores how Apple's open-source XNU kernel can be hosted alongside a
 Linux kernel through a small foreign-kernel interface (FKI). The project also
 contains Linux-side display, input, networking, storage, and GPU-bridge pieces
 for the ARM64 hosted-system path.
@@ -22,7 +22,7 @@ for the ARM64 hosted-system path.
 | Hosted display tools | Framebuffer conversion and validated keyboard/pointer input |
 | ARM64 hosted path | Existing experimental path; see [`docs/`](docs/) for platform-specific requirements |
 
-XNUBridge does not distribute macOS, Apple system disks, Apple kexts, or other
+YVXnu-bridge does not distribute macOS, Apple system disks, Apple kexts, or other
 Apple-only binaries. Those components remain the responsibility of the user,
 subject to Apple's licences and applicable law.
 
@@ -62,8 +62,8 @@ sudo apt install -y \
 Clone the project and run the complete non-loading check suite:
 
 ```sh
-git clone https://github.com/YoanValko/xnu-bridge.git
-cd xnu-bridge
+git clone https://github.com/YoanValko/YVXnu-bridge.git
+cd YVXnu-bridge
 make check
 ```
 
@@ -146,7 +146,7 @@ Apple-provided binaries in a pull request.
 
 This repository contains components under multiple licences. See
 [`LICENSES/`](LICENSES/) and the SPDX headers in each source file before
-redistributing or combining components. XNUBridge is not affiliated with or
+redistributing or combining components. YVXnu-bridge is not affiliated with or
 endorsed by Apple; macOS, XNU, and Metal are Apple trademarks.
 
 ## Acknowledgements
