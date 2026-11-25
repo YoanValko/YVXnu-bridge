@@ -1,0 +1,27 @@
+name: Checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ubuntu-x86-64:
+    name: Ubuntu x86-64
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y +            build-essential pkg-config python3 +            linux-headers-$(uname -r) +            libdrm-dev libvirglrenderer-dev libvirglrenderer1
+
+      - name: Run non-loading checks
+        run: make check

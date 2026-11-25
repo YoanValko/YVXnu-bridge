@@ -1,11 +1,25 @@
-# YVXnu-bridge
+<div align="center">
+  <h1>YVXnu-bridge</h1>
+  <p><strong>Experimental XNU-on-Linux hosting and GPU integration</strong></p>
+  <p>
+    <a href="https://github.com/YoanValko/YVXnu-bridge/stargazers"><img src="https://img.shields.io/github/stars/YoanValko/YVXnu-bridge?style=flat-square&label=stars" alt="GitHub stars"></a>
+    <a href="https://github.com/YoanValko/YVXnu-bridge/issues"><img src="https://img.shields.io/github/issues/YoanValko/YVXnu-bridge?style=flat-square&label=issues" alt="GitHub issues"></a>
+    <a href="https://github.com/YoanValko/YVXnu-bridge/actions/workflows/check.yml"><img src="https://github.com/YoanValko/YVXnu-bridge/actions/workflows/check.yml/badge.svg?branch=main" alt="Checks"></a>
+    <img src="https://img.shields.io/badge/platform-x86__64%20%7C%20ARM64-2f6f9f?style=flat-square" alt="Platforms: x86-64 and ARM64">
+    <img src="https://img.shields.io/badge/status-experimental-d97706?style=flat-square" alt="Status: experimental">
+  </p>
+  <p>
+    <a href="#quick-start-ubuntu-x86-64">Quick start</a> ·
+    <a href="docs/amd64-port.md">AMD64 port</a> ·
+    <a href="docs/hosted-service.md">Hosted service</a> ·
+    <a href="docs/production.md">Known limitations</a>
+  </p>
+</div>
 
-**An experimental bridge for researching XNU on Linux.**
-
-YVXnu-bridge explores how Apple's open-source XNU kernel can be hosted alongside a
-Linux kernel through a small foreign-kernel interface (FKI). The project also
-contains Linux-side display, input, networking, storage, and GPU-bridge pieces
-for the ARM64 hosted-system path.
+YVXnu-bridge is an experimental systems-research project exploring how Apple's
+open-source XNU kernel can be hosted alongside a Linux kernel through a small
+foreign-kernel interface (FKI). It also contains Linux-side display, input,
+networking, storage, and GPU-bridge pieces for the ARM64 hosted-system path.
 
 > **Project status:** experimental research software. The AMD64 port currently
 > provides a safe, parse-only XNU bring-up loader and non-loading validation
@@ -114,6 +128,8 @@ For implementation details, see:
 - [`docs/amd64-port.md`](docs/amd64-port.md) — AMD64 scope and limitations
 - [`docs/hosted-service.md`](docs/hosted-service.md) — ARM64 hosted-service workflow
 - [`docs/production.md`](docs/production.md) — known stopgaps and production gaps
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — development and pull-request workflow
+- [`SECURITY.md`](SECURITY.md) — safe testing and vulnerability reporting
 
 ## Repository layout
 
