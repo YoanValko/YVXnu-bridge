@@ -8,7 +8,7 @@ M      := $(CURDIR)/fki-ko
 
 .XNU_M := $(CURDIR)/xnu-ko
 
-.PHONY: all check amd64-fki amd64-xnu gpu-check hosted-desktop-check x86-world-check x86-macho-check x86-world-test x86-stack-test x86-abi-check clean
+.PHONY: all check amd64-fki amd64-xnu gpu-check hosted-desktop-check x86-world-check x86-macho-check x86-world-test x86-stack-test x86-abi-check x86-preflight clean
 
 all: amd64-fki
 
@@ -43,7 +43,11 @@ gpu-check:
 
 hosted-desktop-check:
 	python3 -m py_compile tools/hosted/fb2png.py tools/hosted/xnu-input.py
+	python3 tests/input_host_test.py
 	@echo "Hosted desktop tools: PASS"
+
+x86-preflight:
+	bash scripts/x86-boot-preflight.sh
 
 x86-world-check:
 	$(CC) -c -ffreestanding -fno-stack-protector -o /tmp/xnulinux-world_x86.o xnu-ko/world_x86.S

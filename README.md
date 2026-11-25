@@ -189,6 +189,7 @@ make                 # build the kernel modules and GPU daemon
 make check           # complete non-loading validation suite
 make gpu-check       # build and smoke-test the Linux GPU bridge
 make hosted-desktop-check
+make x86-preflight   # safe AMD64 boot/input preflight; never loads modules
 make x86-macho-check x86-world-test x86-stack-test x86-abi-check x86-world-check
 ```
 
