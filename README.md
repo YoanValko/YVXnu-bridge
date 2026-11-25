@@ -38,6 +38,41 @@ git clone https://github.com/YoanValko/YVXnu-bridge.git && \
 `make check` is the supported first test. It builds the modules, runs the host
 tests, and leaves your running Linux kernel unchanged.
 
+## VMware guest setup
+
+If you are testing YVXnu-bridge inside an Ubuntu VM hosted by VMware, install
+the guest integration tools inside the Ubuntu guest. Ubuntu recommends the
+open-source `open-vm-tools` packages:
+
+### Ubuntu Desktop
+
+```sh
+sudo apt update
+sudo apt install -y open-vm-tools open-vm-tools-desktop
+sudo systemctl enable --now open-vm-tools
+sudo reboot
+```
+
+### Ubuntu Server
+
+```sh
+sudo apt update
+sudo apt install -y open-vm-tools
+sudo systemctl enable --now open-vm-tools
+```
+
+Verify the service after reboot:
+
+```sh
+systemctl status open-vm-tools --no-pager
+vmware-toolbox-cmd -v
+```
+
+These packages provide VMware guest integration such as clipboard sharing,
+automatic display resizing, mouse integration, and time synchronization. See
+the [Ubuntu VMware Tools guide](https://help.ubuntu.com/community/VMware/Tools)
+for host-specific notes.
+
 ## What works today
 
 | Area | Status |
