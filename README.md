@@ -1,5 +1,4 @@
 <div align="center">
-  <img src="docs/images/yvxnu-bridge-logo.svg" alt="YVXnu-bridge split glass face and Linux penguin logo" width="180">
   <h1>YVXnu-bridge</h1>
   <p><strong>Experimental XNU-on-Linux hosting and GPU integration</strong></p>
   <p>
