@@ -38,6 +38,11 @@ git clone https://github.com/YoanValko/YVXnu-bridge.git && \
 `make check` is the supported first test. It builds the modules, runs the host
 tests, and leaves your running Linux kernel unchanged.
 
+You can also run the same safe check in GitHub Actions with the **Run workflow**
+button on the [Checks workflow page](https://github.com/YoanValko/YVXnu-bridge/actions/workflows/check.yml).
+Successful runs upload the build artifacts for seven days. GitHub Actions only
+builds and tests the modules; it never loads them into the runner kernel.
+
 ## VMware guest setup
 
 If you are testing YVXnu-bridge inside an Ubuntu VM hosted by VMware, install

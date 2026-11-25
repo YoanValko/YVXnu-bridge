@@ -27,3 +27,15 @@ jobs:
         # GitHub-hosted runners do not provide a VirGL render context. The
         # local smoke test remains available with the project's VirGL setup.
         run: make check VIRGL=0
+
+      - name: Upload build artifacts
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: yvxnu-bridge-amd64-${{ github.sha }}
+          path: |
+            fki-ko/fki.ko
+            xnu-ko/xnu.ko
+            gpu/xnu-drm/xnudrmd
+          if-no-files-found: error
+          retention-days: 7
