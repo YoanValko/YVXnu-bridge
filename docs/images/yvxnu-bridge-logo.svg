@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
   <title id="title">YVXnu-bridge split glass face and Linux penguin logo</title>
-  <desc id="desc">An original split mark: a blue glass face inspired by desktop finder icons on the left and a Linux penguin on the right.</desc>
+  <desc id="desc">An original split mark: a blue glass face inspired by desktop finder icons on the left and a liquid-glass penguin on the right.</desc>
   <defs>
     <linearGradient id="frame" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#dff7ff"/>
@@ -18,14 +18,21 @@
       <stop offset=".45" stop-color="#dff7ff" stop-opacity=".86"/>
       <stop offset="1" stop-color="#9bdcff" stop-opacity=".72"/>
     </linearGradient>
-    <linearGradient id="penguinBody" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#26354f"/>
-      <stop offset=".5" stop-color="#0b1220"/>
-      <stop offset="1" stop-color="#020617"/>
+    <linearGradient id="penguinGlass" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#b9f2ff" stop-opacity=".74"/>
+      <stop offset=".18" stop-color="#477aa5" stop-opacity=".76"/>
+      <stop offset=".52" stop-color="#172b49" stop-opacity=".92"/>
+      <stop offset="1" stop-color="#020617" stop-opacity=".96"/>
     </linearGradient>
-    <linearGradient id="belly" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#ffffff"/>
-      <stop offset="1" stop-color="#dbeafe"/>
+    <linearGradient id="penguinWing" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6ee7f9" stop-opacity=".5"/>
+      <stop offset=".5" stop-color="#172b49" stop-opacity=".86"/>
+      <stop offset="1" stop-color="#020617" stop-opacity=".94"/>
+    </linearGradient>
+    <linearGradient id="bellyGlass" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".95"/>
+      <stop offset=".42" stop-color="#e0f7ff" stop-opacity=".72"/>
+      <stop offset="1" stop-color="#93c5fd" stop-opacity=".46"/>
     </linearGradient>
     <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
       <feDropShadow dx="0" dy="24" stdDeviation="24" flood-color="#020617" flood-opacity=".28"/>
@@ -60,19 +67,22 @@
     <path d="M206 610C256 660 366 660 442 598" fill="none" stroke="#0f2f68" stroke-width="24" stroke-linecap="round"/>
     <path d="M164 760C244 824 364 824 452 758" fill="none" stroke="#ffffff" stroke-opacity=".32" stroke-width="13" stroke-linecap="round"/>
 
-    <!-- Linux penguin -->
+    <!-- Original liquid-glass penguin -->
     <path d="M738 248C636 248 574 332 574 470V684C574 818 650 894 766 894C882 894 958 818 958 684V470C958 332 876 248 738 248Z"
-          fill="url(#penguinBody)"/>
-    <path d="M617 484C567 510 542 594 560 668C574 724 614 736 646 696L688 628L664 508Z" fill="#17233a"/>
-    <path d="M880 484C930 510 955 594 937 668C923 724 883 736 851 696L809 628L833 508Z" fill="#17233a"/>
-    <ellipse cx="766" cy="636" rx="126" ry="202" fill="url(#belly)"/>
-    <ellipse cx="710" cy="440" rx="42" ry="48" fill="#f8fafc"/>
-    <ellipse cx="822" cy="440" rx="42" ry="48" fill="#f8fafc"/>
+          fill="url(#penguinGlass)" stroke="#9cecff" stroke-opacity=".72" stroke-width="7"/>
+    <path d="M880 484C930 510 955 594 937 668C923 724 883 736 851 696L809 628L833 508Z" fill="url(#penguinWing)" stroke="#9cecff" stroke-opacity=".4" stroke-width="5"/>
+    <path d="M617 484C567 510 542 594 560 668C574 724 614 736 646 696L688 628L664 508Z" fill="url(#penguinWing)" stroke="#9cecff" stroke-opacity=".4" stroke-width="5"/>
+    <ellipse cx="766" cy="636" rx="126" ry="202" fill="url(#bellyGlass)" stroke="#ffffff" stroke-opacity=".7" stroke-width="5"/>
+    <ellipse cx="710" cy="440" rx="42" ry="48" fill="#f8fafc" fill-opacity=".9" stroke="#9cecff" stroke-opacity=".62" stroke-width="5"/>
+    <ellipse cx="822" cy="440" rx="42" ry="48" fill="#f8fafc" fill-opacity=".9" stroke="#9cecff" stroke-opacity=".62" stroke-width="5"/>
     <circle cx="720" cy="446" r="14" fill="#0f172a"/>
     <circle cx="812" cy="446" r="14" fill="#0f172a"/>
     <path d="M744 490L766 472L788 490L766 518Z" fill="#f59e0b"/>
     <path d="M708 862C664 882 632 908 648 936C672 972 738 944 766 912C794 944 860 972 884 936C900 908 868 882 824 862C790 876 742 876 708 862Z" fill="#f59e0b"/>
-    <path d="M688 320C724 288 808 288 844 320" fill="none" stroke="#475569" stroke-opacity=".55" stroke-width="14" stroke-linecap="round"/>
+    <path d="M688 320C724 288 808 288 844 320" fill="none" stroke="#d7f9ff" stroke-opacity=".68" stroke-width="14" stroke-linecap="round"/>
+    <path d="M624 354C666 292 748 270 824 292" fill="none" stroke="#ffffff" stroke-opacity=".5" stroke-width="18" stroke-linecap="round"/>
+    <path d="M704 574C750 532 816 540 846 586" fill="none" stroke="#ffffff" stroke-opacity=".48" stroke-width="12" stroke-linecap="round"/>
+    <path d="M700 742C746 772 804 770 842 742" fill="none" stroke="#7dd3fc" stroke-opacity=".45" stroke-width="11" stroke-linecap="round"/>
 
     <path d="M512 32V992" stroke="#ffffff" stroke-opacity=".26" stroke-width="4"/>
     <path d="M58 210C250 88 394 112 512 160" fill="none" stroke="#ffffff" stroke-opacity=".34" stroke-width="8"/>
